@@ -1,0 +1,54 @@
+import { test, expect } from '@playwright/test';
+
+test('desktop multiplayer, legal highlights, history, refresh, spectator and rematch', async ({ browser }) => {
+  const whiteContext = await browser.newContext(), blackContext = await browser.newContext(), watchContext = await browser.newContext();
+  const white = await whiteContext.newPage(), black = await blackContext.newPage(), watch = await watchContext.newPage();
+  const errors = []; for (const page of [white,black,watch]) page.on('pageerror',e => errors.push(e.message));
+  await white.goto('/'); await expect(white.locator('#connection')).toHaveText('Connected');
+  await white.locator('#name').fill('Alice'); await white.locator('#takebacks').check();
+  await white.getByRole('button',{name:'Create private game'}).click();
+  await expect(white.locator('#game')).toBeVisible();
+  const code = await white.locator('#display-code').textContent();
+  await black.goto(`/?room=${code}`); await black.locator('#name').fill('Bob');
+  await black.locator('#join-panel button[type=submit]').click();
+  await expect(white.locator('#board-status')).toHaveText('White to move');
+  await white.locator('[data-square=e2]').click(); await expect(white.locator('[data-square=e4]')).toHaveClass(/legal/);
+  await white.locator('[data-square=e4]').click(); await expect(black.locator('#board-status')).toHaveText('Black to move');
+  await black.locator('[data-square=e7]').click(); await black.locator('[data-square=e5]').click();
+  await expect(white.locator('#move-list')).toContainText('e5');
+  await white.locator('[data-square=g1]').dragTo(white.locator('[data-square=f3]'));
+  await expect(white.locator('#move-list')).toContainText('Nf3');
+  await white.screenshot({path:'test-results/desktop.png',fullPage:true});
+  await white.locator('#first').click(); await expect(white.locator('#board-status')).toContainText('Reviewing move 0');
+  await white.locator('#live').click(); await expect(white.locator('#board-status')).toHaveText('Black to move');
+  await white.reload(); await expect(white.locator('#seat-label')).toHaveText('You’re playing White.');
+  await expect(white.locator('#move-list')).toContainText('Nf3');
+  await watch.goto(`/?room=${code}`); await watch.locator('#watch').click();
+  await expect(watch.locator('#seat-label')).toContainText('spectator'); await expect(watch.locator('#resign')).toBeDisabled();
+  await white.locator('#draw').click(); await black.getByRole('button',{name:'Decline',exact:true}).click(); await expect(white.locator('#offers')).toBeHidden();
+  await white.locator('#draw').click(); await black.getByRole('button',{name:'Accept',exact:true}).click();
+  await expect(white.locator('#result-dialog')).toBeVisible();
+  await white.locator('#modal-rematch').click(); await black.locator('#modal-rematch').click();
+  await expect(white.locator('#seat-label')).toHaveText('You’re playing Black.');
+  await expect(black.locator('#seat-label')).toHaveText('You’re playing White.');
+  await expect(white.locator('#board-status')).toHaveText('White to move');
+  expect(errors).toEqual([]);
+  await whiteContext.close(); await blackContext.close(); await watchContext.close();
+});
+
+test('mobile setup, board dimensions, flip and theme', async ({ browser }) => {
+  const context = await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  const page = await context.newPage(); await page.goto('/');
+  await expect(page.locator('#connection')).toHaveText('Connected');
+  await page.locator('#time').selectOption('custom'); await expect(page.locator('#custom-time')).toBeVisible();
+  await page.locator('#minutes').fill('2'); await page.locator('#increment').fill('1');
+  await page.getByRole('button',{name:'Create private game'}).click();
+  await expect(page.locator('#control-label')).toHaveText('2+1');
+  const size = await page.locator('#board').boundingBox(); expect(size.width).toBeLessThanOrEqual(390); expect(Math.abs(size.width-size.height)).toBeLessThan(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(page.locator('.square').first()).toHaveAttribute('data-square','a8');
+  await page.locator('#flip').click(); await expect(page.locator('.square').first()).toHaveAttribute('data-square','h1');
+  await page.locator('#theme').click(); await expect(page.locator('html')).toHaveAttribute('data-theme','light');
+  await page.screenshot({path:'test-results/mobile.png',fullPage:true});
+  await context.close();
+});
